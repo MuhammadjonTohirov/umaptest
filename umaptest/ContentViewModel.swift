@@ -11,7 +11,10 @@ import CoreLocation
 import Combine
 
 final class ContentViewModel: NSObject, ObservableObject {
-    let mapModel = UniversalMapViewModel(mapProvider: .mapLibre, input: GoogleMapInput())
+    let mapModel = UniversalMapViewModel(
+        mapProvider: .mapLibre,
+        input: GoogleMapInput()
+    )
     
     // Location manager for tracking
     private let locationManager = CLLocationManager()
@@ -43,12 +46,25 @@ final class ContentViewModel: NSObject, ObservableObject {
             onEnd: nil
         ))
         mapModel.setInteractionDelegate(self)
+        mapModel.pinModel.set(state: .waiting(time: "1", unit: "MIN"))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            self.mapModel.pinModel.set(state: .steady)
+        }
         locationManager.requestWhenInUseAuthorization()
     }
     
     @MainActor
     func focusToCurrentLocation() {
-        self.mapModel.focusToCurrentLocation()
+//        self.mapModel.focusToCurrentLocation()
+        guard let loc = locationManager.location?.coordinate else { return }
+        
+        self.mapModel.mapProviderInstance.updateCamera(to: .init(
+            center: loc,
+            zoom: 18,
+            bearing: 0,
+            pitch: 30,
+            animate: true
+        ))
     }
     
     @MainActor

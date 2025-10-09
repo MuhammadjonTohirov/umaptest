@@ -9,7 +9,6 @@ import Foundation
 import SwiftUI
 import MapPack
 
-
 // MARK: - Updated ContentView
 struct ImprovedContentView: View {
     @ObservedObject var viewModel = ImprovedContentViewModel()
