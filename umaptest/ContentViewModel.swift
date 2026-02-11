@@ -11,10 +11,8 @@ import CoreLocation
 import Combine
 
 final class ContentViewModel: NSObject, ObservableObject {
-    let mapModel = UniversalMapViewModel(
-        mapProvider: .mapLibre,
-        input: GoogleMapInput()
-    )
+    
+    let mapModel = UniversalMapViewModel.init(mapProvider: .mapLibre, config: MapConfig(config: MapLibreConfig()))
     
     // Location manager for tracking
     private let locationManager = CLLocationManager()
