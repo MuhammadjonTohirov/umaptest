@@ -8,10 +8,13 @@
 import SwiftUI
 
 @main
-struct umaptestApp: App {
+struct UmaptestApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onAppear {
+                    AppSetup.setup()
+                }
         }
     }
 }

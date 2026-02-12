@@ -46,6 +46,15 @@
       }
     },
     {
+      "identity" : "slidingbottomsheet",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/MuhammadjonTohirov/SlidingBottomSheet",
+      "state" : {
+        "branch" : "main",
+        "revision" : "fbbe8ad7f5da87ba07b45f8a5c2ba8aa0afecaa6"
+      }
+    },
+    {
       "identity" : "solar",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/ceeK/Solar.git",
@@ -61,6 +70,15 @@
       "state" : {
         "revision" : "b05b4658d1b48eac4127a0d9ebbb5a6f965a8251",
         "version" : "0.2.2"
+      }
+    },
+    {
+      "identity" : "yallakit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/MuhammadjonTohirov/yallakit",
+      "state" : {
+        "branch" : "main",
+        "revision" : "11f5e8daf02c45d0f88bc7b52afa1625a7970dca"
       }
     }
   ],

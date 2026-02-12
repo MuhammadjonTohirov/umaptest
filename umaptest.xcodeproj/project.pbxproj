@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		2E4B256D2DDF54E900373FB5 /* MapPack in Frameworks */ = {isa = PBXBuildFile; productRef = 2E4B256C2DDF54E900373FB5 /* MapPack */; };
+		52752DFF2F3CBCF3001044A3 /* YallaKit in Frameworks */ = {isa = PBXBuildFile; productRef = 52752DFE2F3CBCF3001044A3 /* YallaKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -42,6 +43,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2E4B256D2DDF54E900373FB5 /* MapPack in Frameworks */,
+				52752DFF2F3CBCF3001044A3 /* YallaKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -95,6 +97,7 @@
 			name = umaptest;
 			packageProductDependencies = (
 				2E4B256C2DDF54E900373FB5 /* MapPack */,
+				52752DFE2F3CBCF3001044A3 /* YallaKit */,
 			);
 			productName = umaptest;
 			productReference = 2E9079752DDF50A300FB7A9B /* umaptest.app */;
@@ -124,6 +127,9 @@
 			);
 			mainGroup = 2E90796C2DDF50A300FB7A9B;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				52752DFD2F3CBCF3001044A3 /* XCRemoteSwiftPackageReference "yallakit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2E9079762DDF50A300FB7A9B /* Products */;
 			projectDirPath = "";
@@ -359,10 +365,26 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		52752DFD2F3CBCF3001044A3 /* XCRemoteSwiftPackageReference "yallakit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/MuhammadjonTohirov/yallakit";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		2E4B256C2DDF54E900373FB5 /* MapPack */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MapPack;
+		};
+		52752DFE2F3CBCF3001044A3 /* YallaKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 52752DFD2F3CBCF3001044A3 /* XCRemoteSwiftPackageReference "yallakit" */;
+			productName = YallaKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -1,133 +1,193 @@
-//
-//  ContentView.swift
-//  umaptest
-//
-//  Created by applebro on 22/05/25.
-//
-
 import SwiftUI
 import MapPack
 
+@MainActor
 struct ContentView: View {
-    @ObservedObject
-    var viewModel = ContentViewModel()
-    
-    private var safeArea: UIEdgeInsets {
+    @StateObject private var viewModel: ContentViewModel
+
+    private var safeAreaInsets: UIEdgeInsets {
         UIApplication.shared.safeAreaInsets
     }
-    
-    private var screenSize: CGSize {
-        UIScreen.main.bounds.size
+
+    init(viewModel: @autoclosure @escaping () -> ContentViewModel = ContentViewModel()) {
+        _viewModel = StateObject(wrappedValue: viewModel())
     }
-    
+
     var body: some View {
-        UniversalMapView(
-            viewModel: viewModel.mapModel
-        )
-        .onAppear {
-            viewModel.onAppear()
-        }
-        .overlay {
-            VStack {
-                Spacer()
-                
-                // Marker tracking controls
-                markerTrackingControls
-                    .padding(.bottom, 10)
-                
-                // Bottom action buttons
-                bottomActions
-                    .padding(.bottom, safeArea.bottom + 10)
+        UniversalMapView(viewModel: viewModel.mapModel)
+            .onAppear(perform: viewModel.onAppear)
+            .overlay {
+                VStack {
+                    Spacer()
+
+                    TrackingControlsView(
+                        isTracking: viewModel.isTrackingMarker,
+                        isRouteLoading: viewModel.isRouteLoading,
+                        onToggleTracking: toggleTrackingState,
+                        onReloadRoute: viewModel.reloadRoute
+                    )
+                    .padding(.bottom, Layout.controlsBottomPadding)
+
+                    MapBottomActionsView(
+                        statusText: statusText,
+                        statusDotColor: statusDotColor,
+                        onFocusTap: viewModel.focusToCurrentLocation
+                    )
+                    .padding(.bottom, safeAreaInsets.bottom + Layout.bottomActionsBottomPadding)
+                }
             }
-        }
     }
-    
-    private var markerTrackingControls: some View {
-        HStack(spacing: 12) {
-            Button {
-                if viewModel.isTrackingMarker {
-                    viewModel.stopTrackingMarker()
-                } else {
-                    viewModel.startTrackingMarker()
-                }
-            } label: {
-                HStack {
-                    Image(systemName: viewModel.isTrackingMarker ? "stop.fill" : "car.fill")
-                    Text(viewModel.isTrackingMarker ? "Stop Tracking" : "Track Marker")
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+
+    private func toggleTrackingState() {
+        if viewModel.isTrackingMarker {
+            viewModel.stopTrackingMarker()
+            return
+        }
+
+        viewModel.startTrackingMarker()
+    }
+
+    private var statusText: String {
+        if viewModel.isRouteLoading {
+            return "Loading Route"
+        }
+        if viewModel.isTrackingMarker {
+            return "Tracking"
+        }
+        return viewModel.isRouteLoaded ? "Ready" : "Idle"
+    }
+
+    private var statusDotColor: Color {
+        if viewModel.isRouteLoading {
+            return .orange
+        }
+        if viewModel.isTrackingMarker {
+            return .green
+        }
+        return viewModel.isRouteLoaded ? .blue : .gray
+    }
+}
+
+private struct TrackingControlsView: View {
+    let isTracking: Bool
+    let isRouteLoading: Bool
+    let onToggleTracking: () -> Void
+    let onReloadRoute: () -> Void
+
+    var body: some View {
+        HStack(spacing: Layout.controlSpacing) {
+            Button(action: onToggleTracking) {
+                Label(
+                    isTracking ? "Stop Tracking" : "Start Tracking",
+                    systemImage: isTracking ? "stop.fill" : "car.fill"
+                )
+                .padding(.horizontal, Layout.buttonHorizontalPadding)
+                .padding(.vertical, Layout.buttonVerticalPadding)
             }
             .buttonStyle(.borderedProminent)
-            .tint(viewModel.isTrackingMarker ? .red : .blue)
-            
-            Button {
-                viewModel.startTrackingMarkerWithFocus()
-            } label: {
+            .tint(isTracking ? .red : .blue)
+            .disabled(isRouteLoading)
+
+            Button(action: onReloadRoute) {
                 HStack {
-                    Image(systemName: "location.viewfinder")
-                    Text("Track & Focus")
+                    Image(systemName: "arrow.clockwise")
+                    Text("Reload Route")
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.horizontal, Layout.buttonHorizontalPadding)
+                .padding(.vertical, Layout.buttonVerticalPadding)
             }
             .buttonStyle(.bordered)
-            .disabled(viewModel.isTrackingMarker)
+            .disabled(isRouteLoading)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Layout.horizontalPadding)
     }
-    
-    private var bottomActions: some View {
+}
+
+private struct MapBottomActionsView: View {
+    let statusText: String
+    let statusDotColor: Color
+    let onFocusTap: () -> Void
+
+    var body: some View {
         HStack {
-            // Status indicator
-            statusIndicator
-            
+            StatusIndicatorView(text: statusText, dotColor: statusDotColor)
+
             Spacer()
-            
-            // Focus button
-            focusButton
-                .onTapGesture {
-                    viewModel.focusToCurrentLocation()
-                }
+
+            FocusButtonView(onTap: onFocusTap)
         }
-        .padding(.horizontal, 20)
-        .frame(height: 60)
+        .padding(.horizontal, Layout.horizontalPadding)
+        .frame(height: Layout.bottomActionsHeight)
     }
-    
-    private var statusIndicator: some View {
-        HStack(spacing: 8) {
+}
+
+private struct StatusIndicatorView: View {
+    let text: String
+    let dotColor: Color
+
+    var body: some View {
+        HStack(spacing: Layout.statusSpacing) {
             Circle()
-                .fill(viewModel.isTrackingMarker ? Color.green : Color.gray)
-                .frame(width: 8, height: 8)
-                .animation(.easeInOut, value: viewModel.isTrackingMarker)
-            
-            Text(viewModel.isTrackingMarker ? "Tracking" : "Idle")
+                .fill(dotColor)
+                .frame(width: Layout.statusDotSize, height: Layout.statusDotSize)
+
+            Text(text)
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Layout.statusHorizontalPadding)
+        .padding(.vertical, Layout.statusVerticalPadding)
         .background(
             Capsule()
                 .fill(.background)
-                .shadow(color: .black.opacity(0.1), radius: 2)
+                .shadow(color: .black.opacity(Layout.statusShadowOpacity), radius: Layout.statusShadowRadius)
         )
     }
-    
-    private var focusButton: some View {
-        Image(systemName: "scope")
-            .font(.system(size: 18, weight: .medium))
-            .foregroundColor(.primary)
-            .padding(12)
-            .background(
-                Circle()
-                    .foregroundStyle(.background)
-                    .shadow(
-                        color: .black.opacity(0.2),
-                        radius: 4
-                    )
-            )
+}
+
+private struct FocusButtonView: View {
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            Image(systemName: "scope")
+                .font(.system(size: Layout.focusIconSize, weight: .medium))
+                .foregroundColor(.primary)
+                .padding(Layout.focusButtonPadding)
+                .background(
+                    Circle()
+                        .foregroundStyle(.background)
+                        .shadow(
+                            color: .black.opacity(Layout.focusButtonShadowOpacity),
+                            radius: Layout.focusButtonShadowRadius
+                        )
+                )
+        }
+        .buttonStyle(.plain)
     }
+}
+
+private enum Layout {
+    static let horizontalPadding: CGFloat = 20
+    static let controlsBottomPadding: CGFloat = 10
+    static let bottomActionsBottomPadding: CGFloat = 10
+    static let bottomActionsHeight: CGFloat = 60
+
+    static let controlSpacing: CGFloat = 12
+    static let buttonHorizontalPadding: CGFloat = 16
+    static let buttonVerticalPadding: CGFloat = 8
+
+    static let statusSpacing: CGFloat = 8
+    static let statusDotSize: CGFloat = 8
+    static let statusHorizontalPadding: CGFloat = 12
+    static let statusVerticalPadding: CGFloat = 6
+    static let statusShadowOpacity: CGFloat = 0.1
+    static let statusShadowRadius: CGFloat = 2
+
+    static let focusIconSize: CGFloat = 18
+    static let focusButtonPadding: CGFloat = 12
+    static let focusButtonShadowOpacity: CGFloat = 0.2
+    static let focusButtonShadowRadius: CGFloat = 4
 }
 
 #Preview {

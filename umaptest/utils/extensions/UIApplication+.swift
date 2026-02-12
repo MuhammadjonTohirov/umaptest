@@ -10,20 +10,10 @@ import UIKit
 
 extension UIApplication {
     var safeAreaInsets: UIEdgeInsets {
-        windows.first?.safeAreaInsets ?? .zero
-    }
-}
-
-extension UIScreen {
-    static var screenSize: CGSize {
-        return UIScreen.main.bounds.size
-    }
-    
-    static var screenWidth: CGFloat {
-        return UIScreen.main.bounds.width
-    }
-    
-    static var screenHeight: CGFloat {
-        return UIScreen.main.bounds.height
+        connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .safeAreaInsets ?? .zero
     }
 }
