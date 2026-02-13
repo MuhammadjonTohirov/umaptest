@@ -23,6 +23,11 @@ struct TrackingConfig {
     let maxHeadingTurnRatePerSecond: CLLocationDirection
     let serverHeadingMaxAge: TimeInterval
 
+    let markerAnimationFallbackDuration: TimeInterval
+    let markerAnimationMinDuration: TimeInterval
+    let markerAnimationMaxDuration: TimeInterval
+    let offRouteRerouteCooldown: TimeInterval
+
     let cameraZoom: Double
     let cameraPitch: Double
     let pinLoadingDelay: TimeInterval
@@ -52,6 +57,10 @@ struct TrackingConfig {
         minReliableCourseSpeed: 2.5,
         maxHeadingTurnRatePerSecond: 120.0,
         serverHeadingMaxAge: 3.0,
+        markerAnimationFallbackDuration: 0.35,
+        markerAnimationMinDuration: 0.15,
+        markerAnimationMaxDuration: 1.0,
+        offRouteRerouteCooldown: 2.0,
         cameraZoom: 18.0,
         cameraPitch: 30.0,
         pinLoadingDelay: 1.0,

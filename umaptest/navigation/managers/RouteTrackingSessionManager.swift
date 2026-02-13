@@ -10,6 +10,7 @@ struct RouteSetupState {
 struct RouteTrackingRenderState {
     let markerCoordinate: CLLocationCoordinate2D
     let markerHeading: CLLocationDirection
+    let markerTransitionDuration: TimeInterval
     let remainingPath: [CLLocationCoordinate2D]
     let connectorCoordinates: [CLLocationCoordinate2D]?
     let hasArrived: Bool
@@ -60,6 +61,7 @@ final class RouteTrackingSessionManager: RouteTrackingSessionManaging {
     private var routeHeadingStrategy: RouteHeadingStrategy = .lookAhead
     private var latestServerHeading: (value: CLLocationDirection, timestamp: Date)?
     private var lastHeadingUpdateAt: Date?
+    private var lastLocationUpdateAt: Date?
 
     init(
         config: TrackingConfig,
@@ -95,6 +97,7 @@ final class RouteTrackingSessionManager: RouteTrackingSessionManaging {
         storedDisplayCoordinate = initialCoordinate
         storedDisplayHeading = initialHeading
         lastHeadingUpdateAt = nil
+        lastLocationUpdateAt = nil
 
         return RouteSetupState(
             routeCoordinates: coordinates,
@@ -131,6 +134,7 @@ final class RouteTrackingSessionManager: RouteTrackingSessionManaging {
                 deltaTime: deltaTime,
                 maxTurnRatePerSecond: config.maxHeadingTurnRatePerSecond
             )
+            let transitionDuration = markerTransitionDuration(at: location.timestamp)
 
             storedDisplayCoordinate = snappedLocation
             storedDisplayHeading = smoothedHeading
@@ -150,6 +154,7 @@ final class RouteTrackingSessionManager: RouteTrackingSessionManaging {
             return .onTrack(.init(
                 markerCoordinate: snappedLocation,
                 markerHeading: smoothedHeading,
+                markerTransitionDuration: transitionDuration,
                 remainingPath: remainingPath,
                 connectorCoordinates: connectorCoordinates,
                 hasArrived: hasArrived
@@ -162,6 +167,7 @@ final class RouteTrackingSessionManager: RouteTrackingSessionManaging {
 
     func resetTrackingState() {
         lastHeadingUpdateAt = nil
+        lastLocationUpdateAt = nil
     }
 
     func clearRouteState() {
@@ -170,6 +176,7 @@ final class RouteTrackingSessionManager: RouteTrackingSessionManaging {
         storedDisplayCoordinate = nil
         storedDisplayHeading = 0
         lastHeadingUpdateAt = nil
+        lastLocationUpdateAt = nil
     }
 
     func updateServerHeading(_ heading: CLLocationDirection, timestamp: Date) {
@@ -198,12 +205,30 @@ final class RouteTrackingSessionManager: RouteTrackingSessionManaging {
             return nil
         }
 
-        let connectorDistance = headingService.distance(from: markerCoordinate, to: routeStartCoordinate)
+//        let connectorDistance = headingService.distance(from: markerCoordinate, to: routeStartCoordinate)
 //        guard connectorDistance > config.connectorHideThreshold else {
 //            return nil
 //        }
 
         return [markerCoordinate, routeStartCoordinate]
+    }
+
+    private func markerTransitionDuration(at eventTime: Date) -> TimeInterval {
+        defer { lastLocationUpdateAt = eventTime }
+
+        guard let lastLocationUpdateAt else {
+            return config.markerAnimationFallbackDuration
+        }
+
+        let rawDelta = eventTime.timeIntervalSince(lastLocationUpdateAt)
+        guard rawDelta.isFinite, rawDelta > 0 else {
+            return config.markerAnimationFallbackDuration
+        }
+
+        return max(
+            config.markerAnimationMinDuration,
+            min(config.markerAnimationMaxDuration, rawDelta)
+        )
     }
 }
 

@@ -8,6 +8,7 @@ final class ContentViewModel: ObservableObject {
     @Published private(set) var isTrackingMarker = false
     @Published private(set) var isRouteLoaded = false
     @Published private(set) var isRouteLoading = false
+    @Published private(set) var isCameraFollowEnabled = true
 
     private let config: TrackingConfig
     private let routeProvider: RouteProviding
@@ -15,9 +16,14 @@ final class ContentViewModel: ObservableObject {
     private let markerFactory: TrackedMarkerFactoryProviding
     private let locationValidator: LocationValidating
     private let trackingSession: RouteTrackingSessionManaging
+    private let routeProgressAnimator: RouteProgressAnimating
 
     private var trackedMarker: UniversalMarker?
     private var hasFocusedInitialRoute = false
+    private var routeGeometry: RouteProgressGeometry?
+    private var currentRouteProgress: CLLocationDistance = 0
+    private var isReroutingOffRoute = false
+    private var lastOffRouteRerouteAt: Date?
 
     init(
         mapModel: UniversalMapViewModel = UniversalMapViewModel(
@@ -29,8 +35,10 @@ final class ContentViewModel: ObservableObject {
         markerFactory: TrackedMarkerFactoryProviding? = nil,
         locationValidator: LocationValidating? = nil,
         trackingSession: RouteTrackingSessionManaging? = nil,
+        routeProgressAnimator: RouteProgressAnimating? = nil,
         config: TrackingConfig = .live
     ) {
+        let headingService = HeadingComputationService()
         self.mapModel = mapModel
         self.config = config
         self.routeProvider = routeProvider
@@ -45,8 +53,9 @@ final class ContentViewModel: ObservableObject {
         )
         self.trackingSession = trackingSession ?? RouteTrackingSessionManager(
             config: config,
-            headingService: HeadingComputationService()
+            headingService: headingService
         )
+        self.routeProgressAnimator = routeProgressAnimator ?? RouteProgressAnimationService()
 
         bindLocationEvents()
     }
@@ -112,9 +121,7 @@ final class ContentViewModel: ObservableObject {
             addTrackedMarker(at: initialCoordinate, heading: trackingSession.displayHeading)
         }
 
-        if trackedMarker != nil {
-            mapModel.trackMarker(config.markerId, zoom: config.cameraZoom)
-        }
+        applyCameraFollowModeIfNeeded()
 
         log("Started tracking")
     }
@@ -125,10 +132,24 @@ final class ContentViewModel: ObservableObject {
         locationProvider.stopUpdatingLocation()
         isTrackingMarker = false
         trackingSession.resetTrackingState()
+        routeProgressAnimator.cancel()
+        isReroutingOffRoute = false
         mapModel.stopTracking()
         mapModel.removePolyline(withId: config.routeConnectorPolylineId)
 
         log("Stopped tracking")
+    }
+
+    func toggleCameraFollow() {
+        setCameraFollowEnabled(!isCameraFollowEnabled)
+    }
+
+    func setCameraFollowEnabled(_ enabled: Bool) {
+        guard isCameraFollowEnabled != enabled else { return }
+        isCameraFollowEnabled = enabled
+
+        guard isTrackingMarker else { return }
+        applyCameraFollowModeIfNeeded()
     }
 
     func reloadRoute() {
@@ -180,6 +201,7 @@ final class ContentViewModel: ObservableObject {
         locationProvider.setDistanceFilter(config.defaultDistanceFilter)
     }
 
+    @MainActor
     private func handleLocationEvent(_ event: LocationProviderEvent) {
         switch event {
         case .didUpdateLocation(let location):
@@ -270,11 +292,17 @@ final class ContentViewModel: ObservableObject {
         mapModel.updatePolyline(routePolyline, animated: false)
         mapModel.removePolyline(withId: config.routeConnectorPolylineId)
 
+        routeProgressAnimator.cancel()
+        routeGeometry = RouteProgressGeometry(route: setupState.routeCoordinates)
+        currentRouteProgress = routeGeometry?.progress(of: setupState.initialMarkerCoordinate) ?? 0
+        isReroutingOffRoute = false
+
         removeTrackedMarkerIfNeeded()
         addTrackedMarker(
             at: setupState.initialMarkerCoordinate,
             heading: setupState.initialHeading
         )
+        renderRouteProgress(currentRouteProgress, fallbackHeading: setupState.initialHeading)
 
         if !hasFocusedInitialRoute {
             mapModel.focusTo(coordinates: setupState.routeCoordinates, padding: 48, animated: true)
@@ -284,6 +312,7 @@ final class ContentViewModel: ObservableObject {
         isRouteLoaded = true
     }
 
+    @MainActor
     private func handleRouteTrackingUpdate(for location: CLLocation) {
         guard isTrackingMarker else {
             return
@@ -300,18 +329,34 @@ final class ContentViewModel: ObservableObject {
                     at: renderState.markerCoordinate,
                     heading: renderState.markerHeading
                 )
-                mapModel.trackMarker(config.markerId, zoom: config.cameraZoom)
+                applyCameraFollowModeIfNeeded()
             }
 
-            updateMarkerLocation(
-                coordinate: renderState.markerCoordinate,
-                heading: renderState.markerHeading
-            )
+            guard let routeGeometry else {
+                updateTrackedMarkerPosition(
+                    coordinate: renderState.markerCoordinate,
+                    heading: renderState.markerHeading
+                )
+                mapModel.updatePolyline(
+                    id: config.routePolylineId,
+                    coordinates: renderState.remainingPath,
+                    animated: false
+                )
+                updateConnectorPath(renderState.connectorCoordinates)
+                if renderState.hasArrived {
+                    stopTrackingMarker()
+                }
+                return
+            }
 
-            mapModel.updatePolyline(
-                id: config.routePolylineId,
-                coordinates: renderState.remainingPath,
-                animated: false
+            let rawTargetProgress = routeGeometry.progress(fromRemainingPath: renderState.remainingPath)
+                ?? routeGeometry.progress(of: renderState.markerCoordinate)
+            let targetProgress = max(currentRouteProgress, rawTargetProgress)
+
+            animateRouteProgress(
+                to: targetProgress,
+                duration: renderState.markerTransitionDuration,
+                fallbackHeading: renderState.markerHeading
             )
 
             updateConnectorPath(renderState.connectorCoordinates)
@@ -321,8 +366,110 @@ final class ContentViewModel: ObservableObject {
             }
 
         case .outOfRoute:
-            mapModel.removePolyline(withId: config.routeConnectorPolylineId)
-            log("Location is currently out of route threshold")
+            handleOffRoute(at: location)
+        }
+    }
+    
+    @MainActor
+    private func handleOffRoute(at location: CLLocation) {
+        mapModel.removePolyline(withId: config.routeConnectorPolylineId)
+
+        let heading = location.course >= 0 ? location.course : trackingSession.displayHeading
+        updateTrackedMarkerPosition(coordinate: location.coordinate, heading: heading)
+
+        guard !isReroutingOffRoute else {
+            return
+        }
+
+        if let lastOffRouteRerouteAt,
+           Date().timeIntervalSince(lastOffRouteRerouteAt) < config.offRouteRerouteCooldown {
+            return
+        }
+
+        guard let destination = trackingSession.routeCoordinates.last else {
+            log("Out of route but no destination is available for reroute")
+            return
+        }
+
+        isReroutingOffRoute = true
+        lastOffRouteRerouteAt = Date()
+
+        let start = location.coordinate
+
+        Task { [weak self] in
+            guard let self else { return }
+            let coordinates = await self.fetchRerouteCoordinates(from: start, to: destination)
+
+            await MainActor.run {
+                guard self.isTrackingMarker else {
+                    self.isReroutingOffRoute = false
+                    return
+                }
+                self.applyReroutedRoute(
+                    coordinates: coordinates,
+                    currentLocation: start
+                )
+                self.isReroutingOffRoute = false
+            }
+        }
+    }
+
+    private func fetchRerouteCoordinates(
+        from start: CLLocationCoordinate2D,
+        to destination: CLLocationCoordinate2D
+    ) async -> [CLLocationCoordinate2D] {
+        do {
+            let route = try await routeProvider.fetchRoute(points: [start, destination])
+            if route.count > 1 {
+                return route
+            }
+            return [start, destination]
+        } catch {
+            log("Reroute request failed, using fallback route. error=\(error)")
+            return [start, destination]
+        }
+    }
+
+    @MainActor
+    private func applyReroutedRoute(
+        coordinates: [CLLocationCoordinate2D],
+        currentLocation: CLLocationCoordinate2D
+    ) {
+        guard isTrackingMarker else { return }
+
+        guard let rerouteState = trackingSession.configureRoute(
+            coordinates: coordinates,
+            currentLocation: currentLocation
+        ) else {
+            log("Reroute configure failed")
+            return
+        }
+
+        let routePolyline = UniversalMapPolyline(
+            id: config.routePolylineId,
+            coordinates: rerouteState.routeCoordinates,
+            color: config.routeLineColor,
+            width: config.routeLineWidth,
+            geodesic: true,
+            title: "remaining"
+        )
+        mapModel.updatePolyline(routePolyline, animated: false)
+        routeProgressAnimator.cancel()
+        routeGeometry = RouteProgressGeometry(route: rerouteState.routeCoordinates)
+        currentRouteProgress = routeGeometry?.progress(of: currentLocation) ?? 0
+        renderRouteProgress(currentRouteProgress, fallbackHeading: rerouteState.initialHeading)
+        applyCameraFollowModeIfNeeded()
+
+        log("Applied rerouted path and resumed tracking")
+    }
+
+    private func applyCameraFollowModeIfNeeded() {
+        guard trackedMarker != nil else { return }
+
+        if isCameraFollowEnabled {
+            mapModel.trackMarker(config.markerId, zoom: config.cameraZoom)
+        } else {
+            mapModel.stopTracking()
         }
     }
 
@@ -343,6 +490,56 @@ final class ContentViewModel: ObservableObject {
         mapModel.updatePolyline(connectorPolyline, animated: false)
     }
 
+    private func animateRouteProgress(
+        to targetProgress: CLLocationDistance,
+        duration: TimeInterval,
+        fallbackHeading: CLLocationDirection
+    ) {
+        guard let routeGeometry else {
+            return
+        }
+
+        let clampedTarget = routeGeometry.clamp(progress: targetProgress)
+
+        if abs(clampedTarget - currentRouteProgress) <= 0.05 {
+            renderRouteProgress(clampedTarget, fallbackHeading: fallbackHeading)
+            return
+        }
+
+        routeProgressAnimator.animate(
+            from: currentRouteProgress,
+            to: clampedTarget,
+            duration: duration,
+            onUpdate: { [weak self] progress in
+                self?.renderRouteProgress(progress, fallbackHeading: fallbackHeading)
+            },
+            onCompletion: nil
+        )
+    }
+
+    private func renderRouteProgress(
+        _ progress: CLLocationDistance,
+        fallbackHeading: CLLocationDirection
+    ) {
+        guard let routeGeometry else {
+            return
+        }
+
+        let clampedProgress = routeGeometry.clamp(progress: progress)
+        currentRouteProgress = clampedProgress
+
+        let markerCoordinate = routeGeometry.coordinate(at: clampedProgress)
+        let markerHeading = routeGeometry.heading(at: clampedProgress, fallback: fallbackHeading)
+        updateTrackedMarkerPosition(coordinate: markerCoordinate, heading: markerHeading)
+
+        let remainingRoute = routeGeometry.remainingRoute(from: clampedProgress)
+        mapModel.updatePolyline(
+            id: config.routePolylineId,
+            coordinates: remainingRoute,
+            animated: false
+        )
+    }
+
     private func addTrackedMarker(at coordinate: CLLocationCoordinate2D, heading: CLLocationDirection) {
         let marker = markerFactory.makeMarker(
             id: config.markerId,
@@ -359,18 +556,21 @@ final class ContentViewModel: ObservableObject {
             return
         }
 
+        routeProgressAnimator.cancel()
         mapModel.removeMarker(withId: markerId)
         trackedMarker = nil
     }
 
-    private func updateMarkerLocation(coordinate: CLLocationCoordinate2D, heading: CLLocationDirection) {
-        guard isTrackingMarker,
-              let marker = trackedMarker?.copy() as? UniversalMarker else {
+    private func updateTrackedMarkerPosition(
+        coordinate: CLLocationCoordinate2D,
+        heading: CLLocationDirection
+    ) {
+        guard let marker = trackedMarker else {
             return
         }
 
         marker.updatePosition(coordinate: coordinate, heading: heading)
-        mapModel.updateMarkerWithTracking(marker)
+        mapModel.updateTrackedMarker(marker)
     }
 
     @MainActor

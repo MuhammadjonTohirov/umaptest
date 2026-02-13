@@ -23,8 +23,10 @@ struct ContentView: View {
                     TrackingControlsView(
                         isTracking: viewModel.isTrackingMarker,
                         isRouteLoading: viewModel.isRouteLoading,
+                        isCameraFollowEnabled: viewModel.isCameraFollowEnabled,
                         onToggleTracking: toggleTrackingState,
-                        onReloadRoute: viewModel.reloadRoute
+                        onReloadRoute: viewModel.reloadRoute,
+                        onToggleCameraFollow: viewModel.toggleCameraFollow
                     )
                     .padding(.bottom, Layout.controlsBottomPadding)
 
@@ -71,16 +73,15 @@ struct ContentView: View {
 private struct TrackingControlsView: View {
     let isTracking: Bool
     let isRouteLoading: Bool
+    let isCameraFollowEnabled: Bool
     let onToggleTracking: () -> Void
     let onReloadRoute: () -> Void
+    let onToggleCameraFollow: () -> Void
 
     var body: some View {
         HStack(spacing: Layout.controlSpacing) {
             Button(action: onToggleTracking) {
-                Label(
-                    isTracking ? "Stop Tracking" : "Start Tracking",
-                    systemImage: isTracking ? "stop.fill" : "car.fill"
-                )
+                Image(systemName: isTracking ? "stop.fill" : "car.fill")
                 .padding(.horizontal, Layout.buttonHorizontalPadding)
                 .padding(.vertical, Layout.buttonVerticalPadding)
             }
@@ -89,10 +90,15 @@ private struct TrackingControlsView: View {
             .disabled(isRouteLoading)
 
             Button(action: onReloadRoute) {
-                HStack {
-                    Image(systemName: "arrow.clockwise")
-                    Text("Reload Route")
-                }
+                Image(systemName: "arrow.clockwise")
+                .padding(.horizontal, Layout.buttonHorizontalPadding)
+                .padding(.vertical, Layout.buttonVerticalPadding)
+            }
+            .buttonStyle(.bordered)
+            .disabled(isRouteLoading)
+
+            Button(action: onToggleCameraFollow) {
+                Image(systemName: isCameraFollowEnabled ? "location.fill" : "location.slash")
                 .padding(.horizontal, Layout.buttonHorizontalPadding)
                 .padding(.vertical, Layout.buttonVerticalPadding)
             }
