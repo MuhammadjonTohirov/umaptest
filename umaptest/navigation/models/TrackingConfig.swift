@@ -1,5 +1,6 @@
 import CoreLocation
 import UIKit
+import MapPack
 
 struct TrackingConfig {
     let markerId: String
@@ -70,4 +71,22 @@ struct TrackingConfig {
         pointA: CLLocationCoordinate2D(latitude: 40.383381, longitude: 71.779115),
         pointB: CLLocationCoordinate2D(latitude: 40.394063, longitude: 71.800686)
     )
+}
+
+extension TrackingConfig {
+    var navigationTrackingConfig: NavigationRouteTrackingConfig {
+        NavigationRouteTrackingConfig(
+            routeSnapThreshold: routeSnapThreshold,
+            routeArrivalThreshold: routeArrivalThreshold,
+            connectorHideThreshold: connectorHideThreshold,
+            headingSmoothingFactor: headingSmoothingFactor,
+            routeHeadingLookAheadDistance: routeHeadingLookAheadDistance,
+            minReliableCourseSpeed: minReliableCourseSpeed,
+            maxHeadingTurnRatePerSecond: maxHeadingTurnRatePerSecond,
+            serverHeadingMaxAge: serverHeadingMaxAge,
+            markerAnimationFallbackDuration: markerAnimationFallbackDuration,
+            markerAnimationMinDuration: markerAnimationMinDuration,
+            markerAnimationMaxDuration: markerAnimationMaxDuration
+        )
+    }
 }

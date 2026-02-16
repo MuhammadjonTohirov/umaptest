@@ -15,12 +15,12 @@ final class ContentViewModel: ObservableObject {
     private let locationProvider: LocationProviding
     private let markerFactory: TrackedMarkerFactoryProviding
     private let locationValidator: LocationValidating
-    private let trackingSession: RouteTrackingSessionManaging
-    private let routeProgressAnimator: RouteProgressAnimating
+    private let trackingSession: NavigationRouteTrackingSessionManaging
+    private let routeProgressAnimator: NavigationRouteProgressAnimating
 
     private var trackedMarker: UniversalMarker?
     private var hasFocusedInitialRoute = false
-    private var routeGeometry: RouteProgressGeometry?
+    private var routeGeometry: NavigationRouteProgressGeometry?
     private var currentRouteProgress: CLLocationDistance = 0
     private var isReroutingOffRoute = false
     private var lastOffRouteRerouteAt: Date?
@@ -34,11 +34,11 @@ final class ContentViewModel: ObservableObject {
         locationProvider: LocationProviding = CoreLocationProvider(),
         markerFactory: TrackedMarkerFactoryProviding? = nil,
         locationValidator: LocationValidating? = nil,
-        trackingSession: RouteTrackingSessionManaging? = nil,
-        routeProgressAnimator: RouteProgressAnimating? = nil,
+        trackingSession: NavigationRouteTrackingSessionManaging? = nil,
+        routeProgressAnimator: NavigationRouteProgressAnimating? = nil,
         config: TrackingConfig = .live
     ) {
-        let headingService = HeadingComputationService()
+        let headingService = NavigationHeadingComputationService()
         self.mapModel = mapModel
         self.config = config
         self.routeProvider = routeProvider
@@ -51,11 +51,11 @@ final class ContentViewModel: ObservableObject {
             maxAge: config.locationMaxAge,
             maxHorizontalAccuracy: config.maximumHorizontalAccuracy
         )
-        self.trackingSession = trackingSession ?? RouteTrackingSessionManager(
-            config: config,
+        self.trackingSession = trackingSession ?? NavigationRouteTrackingSessionManager(
+            config: config.navigationTrackingConfig,
             headingService: headingService
         )
-        self.routeProgressAnimator = routeProgressAnimator ?? RouteProgressAnimationService()
+        self.routeProgressAnimator = routeProgressAnimator ?? NavigationRouteProgressAnimationService()
 
         bindLocationEvents()
     }
@@ -186,7 +186,7 @@ final class ContentViewModel: ObservableObject {
         trackingSession.updateServerHeading(heading, timestamp: timestamp)
     }
 
-    func setRouteHeadingStrategy(_ strategy: RouteHeadingStrategy) {
+    func setRouteHeadingStrategy(_ strategy: NavigationRouteHeadingStrategy) {
         trackingSession.setRouteHeadingStrategy(strategy)
     }
 
@@ -293,7 +293,7 @@ final class ContentViewModel: ObservableObject {
         mapModel.removePolyline(withId: config.routeConnectorPolylineId)
 
         routeProgressAnimator.cancel()
-        routeGeometry = RouteProgressGeometry(route: setupState.routeCoordinates)
+        routeGeometry = NavigationRouteProgressGeometry(route: setupState.routeCoordinates)
         currentRouteProgress = routeGeometry?.progress(of: setupState.initialMarkerCoordinate) ?? 0
         isReroutingOffRoute = false
 
@@ -455,7 +455,7 @@ final class ContentViewModel: ObservableObject {
         )
         mapModel.updatePolyline(routePolyline, animated: false)
         routeProgressAnimator.cancel()
-        routeGeometry = RouteProgressGeometry(route: rerouteState.routeCoordinates)
+        routeGeometry = NavigationRouteProgressGeometry(route: rerouteState.routeCoordinates)
         currentRouteProgress = routeGeometry?.progress(of: currentLocation) ?? 0
         renderRouteProgress(currentRouteProgress, fallbackHeading: rerouteState.initialHeading)
         applyCameraFollowModeIfNeeded()
