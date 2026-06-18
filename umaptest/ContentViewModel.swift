@@ -1,14 +1,20 @@
 import SwiftUI
 import MapPack
 import CoreLocation
+import os
 
+@MainActor
 final class ContentViewModel: ObservableObject {
+    private static let logger = Logger(subsystem: "umaptest", category: "ContentViewModel")
+
     let mapModel: UniversalMapViewModel
 
     @Published private(set) var isTrackingMarker = false
     @Published private(set) var isRouteLoaded = false
     @Published private(set) var isRouteLoading = false
     @Published private(set) var isCameraFollowEnabled = true
+    @Published private(set) var isNavigationModeEnabled = false
+    @Published private(set) var hasRandomMarkers = false
 
     private let config: TrackingConfig
     private let routeProvider: RouteProviding
@@ -24,12 +30,10 @@ final class ContentViewModel: ObservableObject {
     private var currentRouteProgress: CLLocationDistance = 0
     private var isReroutingOffRoute = false
     private var lastOffRouteRerouteAt: Date?
+    private var randomMarkerIds: [String] = []
 
     init(
-        mapModel: UniversalMapViewModel = UniversalMapViewModel(
-            mapProvider: .mapLibre,
-            config: MapConfig(config: MapLibreConfig())
-        ),
+        mapModel: UniversalMapViewModel? = nil,
         routeProvider: RouteProviding = YallaRouteProvider(),
         locationProvider: LocationProviding = CoreLocationProvider(),
         markerFactory: TrackedMarkerFactoryProviding? = nil,
@@ -39,7 +43,10 @@ final class ContentViewModel: ObservableObject {
         config: TrackingConfig = .live
     ) {
         let headingService = NavigationHeadingComputationService()
-        self.mapModel = mapModel
+        self.mapModel = mapModel ?? UniversalMapViewModel(
+            mapProvider: .mapLibre,
+            config: MapConfig(config: MapLibreConfig())
+        )
         self.config = config
         self.routeProvider = routeProvider
         self.locationProvider = locationProvider
@@ -74,10 +81,10 @@ final class ContentViewModel: ObservableObject {
 
     func focusToCurrentLocation() {
         if let markerCoordinate = trackedMarker?.coordinate {
-            mapModel.mapProviderInstance.updateCamera(to: .init(
+            mapModel.updateCamera(to: .init(
                 center: markerCoordinate,
                 zoom: config.cameraZoom,
-                bearing: trackingSession.displayHeading,
+                bearing: isNavigationModeEnabled ? trackingSession.displayHeading : 0,
                 pitch: config.cameraPitch,
                 animate: true
             ))
@@ -88,7 +95,7 @@ final class ContentViewModel: ObservableObject {
             return
         }
 
-        mapModel.mapProviderInstance.updateCamera(to: .init(
+        mapModel.updateCamera(to: .init(
             center: coordinate,
             zoom: config.cameraZoom,
             bearing: 0,
@@ -142,6 +149,62 @@ final class ContentViewModel: ObservableObject {
 
     func toggleCameraFollow() {
         setCameraFollowEnabled(!isCameraFollowEnabled)
+    }
+
+    func toggleNavigationMode() {
+        setNavigationModeEnabled(!isNavigationModeEnabled)
+    }
+
+    func setNavigationModeEnabled(_ enabled: Bool) {
+        guard isNavigationModeEnabled != enabled else { return }
+        isNavigationModeEnabled = enabled
+
+        guard isTrackingMarker else { return }
+        applyCameraFollowModeIfNeeded()
+    }
+
+    // MARK: - Random markers (map-rotation test harness)
+
+    /// Drops/removes a cluster of car markers with random headings near the route
+    /// area. Each marker compensates for the map bearing, so rotating the map should
+    /// rotate every marker to keep its heading aligned to the map, not the screen.
+    func toggleRandomMarkers() {
+        hasRandomMarkers ? clearRandomMarkers() : addRandomRotatingMarkers()
+    }
+
+    private func addRandomRotatingMarkers(count: Int = 10) {
+        let center = randomMarkersCenter
+
+        for index in 0..<count {
+            let id = "random_\(index)"
+            let coordinate = CLLocationCoordinate2D(
+                latitude: center.latitude + Double.random(in: -0.008...0.008),
+                longitude: center.longitude + Double.random(in: -0.008...0.008)
+            )
+            let marker = markerFactory.makeMarker(
+                id: id,
+                reuseIdentifier: id,
+                coordinate: coordinate
+            )
+            marker.set(heading: Double.random(in: 0..<360))
+            mapModel.addMarker(marker)
+            randomMarkerIds.append(id)
+        }
+
+        mapModel.updateCamera(to: .init(center: center, zoom: 13, bearing: 0, pitch: 0, animate: true))
+        hasRandomMarkers = true
+    }
+
+    private func clearRandomMarkers() {
+        randomMarkerIds.forEach { mapModel.removeMarker(withId: $0) }
+        randomMarkerIds.removeAll()
+        hasRandomMarkers = false
+    }
+
+    private var randomMarkersCenter: CLLocationCoordinate2D {
+        trackedMarker?.coordinate
+            ?? trackingSession.routeCoordinates.first
+            ?? CLLocationCoordinate2D(latitude: 40.38942, longitude: 71.78280)
     }
 
     func setCameraFollowEnabled(_ enabled: Bool) {
@@ -359,8 +422,6 @@ final class ContentViewModel: ObservableObject {
                 fallbackHeading: renderState.markerHeading
             )
 
-            updateConnectorPath(renderState.connectorCoordinates)
-
             if renderState.hasArrived {
                 stopTrackingMarker()
             }
@@ -467,7 +528,13 @@ final class ContentViewModel: ObservableObject {
         guard trackedMarker != nil else { return }
 
         if isCameraFollowEnabled {
-            mapModel.trackMarker(config.markerId, zoom: config.cameraZoom)
+            mapModel.trackMarker(
+                config.markerId,
+                zoom: config.cameraZoom,
+                mode: isNavigationModeEnabled ? .courseUp : .northUp,
+                pitch: isNavigationModeEnabled ? config.cameraPitch : 0,
+                followAnimationDuration: isNavigationModeEnabled ? nil : config.navigationResetAnimationDuration
+            )
         } else {
             mapModel.stopTracking()
         }
@@ -538,6 +605,35 @@ final class ContentViewModel: ObservableObject {
             coordinates: remainingRoute,
             animated: false
         )
+        updateConnectorPath(
+            connectorCoordinates(
+                markerCoordinate: markerCoordinate,
+                remainingRoute: remainingRoute
+            )
+        )
+    }
+
+    private func connectorCoordinates(
+        markerCoordinate: CLLocationCoordinate2D,
+        remainingRoute: [CLLocationCoordinate2D]
+    ) -> [CLLocationCoordinate2D]? {
+        guard let routeStartCoordinate = remainingRoute.first else {
+            return nil
+        }
+
+        let connectorDistance = CLLocation(
+            latitude: markerCoordinate.latitude,
+            longitude: markerCoordinate.longitude
+        ).distance(from: CLLocation(
+            latitude: routeStartCoordinate.latitude,
+            longitude: routeStartCoordinate.longitude
+        ))
+
+        guard connectorDistance > config.connectorHideThreshold else {
+            return nil
+        }
+
+        return [markerCoordinate, routeStartCoordinate]
     }
 
     private func addTrackedMarker(at coordinate: CLLocationCoordinate2D, heading: CLLocationDirection) {
@@ -595,12 +691,14 @@ final class ContentViewModel: ObservableObject {
     }
 
     private func log(_ message: String) {
-        print("[ContentViewModel] \(message)")
+        Self.logger.debug("\(message, privacy: .public)")
     }
 }
 
 extension ContentViewModel: UniversalMapViewModelDelegate {
     func mapDidEndDragging(map: any MapProviderProtocol, at location: CLLocation) {
-        debugPrint("EndDragging", location)
+        Self.logger.debug(
+            "EndDragging lat=\(location.coordinate.latitude, privacy: .public) lon=\(location.coordinate.longitude, privacy: .public)"
+        )
     }
 }

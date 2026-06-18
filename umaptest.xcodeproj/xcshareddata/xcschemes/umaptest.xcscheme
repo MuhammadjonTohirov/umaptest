@@ -51,7 +51,7 @@
          </BuildableReference>
       </BuildableProductRunnable>
       <LocationScenarioReference
-         identifier = "../../IMap/Sources/MapPack/Utils/fergana_ride_gpx.gpx"
+         identifier = "../../umaptest/resources/fergana_ride_gpx_2.gpx"
          referenceType = "0">
       </LocationScenarioReference>
    </LaunchAction>

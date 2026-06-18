@@ -31,6 +31,8 @@ struct TrackingConfig {
 
     let cameraZoom: Double
     let cameraPitch: Double
+    /// Animation duration used when navigation mode resets the map bearing back to north.
+    let navigationResetAnimationDuration: TimeInterval
     let pinLoadingDelay: TimeInterval
 
     let markerSize: CGFloat
@@ -64,6 +66,7 @@ struct TrackingConfig {
         offRouteRerouteCooldown: 2.0,
         cameraZoom: 18.0,
         cameraPitch: 30.0,
+        navigationResetAnimationDuration: 0.25,
         pinLoadingDelay: 1.0,
         markerSize: 42,
         routeLineWidth: 7,
